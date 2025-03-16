@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Incremental Idle Game with Color-Coded Buttons</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background-color: #222;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { text-align: center; }
+    .bar {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #444;
+      border-radius: 5px;
+      background-color: #333;
+    }
+    button {
+      border: none;
+      padding: 10px;
+      cursor: pointer;
+      border-radius: 3px;
+      margin: 5px;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .hidden { display: none; }
+    #chartContainer { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Incremental Idle Game</h1>
+  
+  <!-- Money bar with payout upgrade and formula -->
+  <div id="moneyBar" class="bar">
+    <h2>Money: <span id="money">0</span></h2>
+    <div id="payoutUpgradeSection">
+      <h3>
+        Payout Upgrade (Current Interval: 
+        <span id="payoutIntervalDisplay">1.0</span> sec)
+      </h3>
+      <button id="upgradePayout" onclick="upgradePayout()">
+        Upgrade Payout (<span id="payoutUpgradeCostDisplay">100</span> Money)
+      </button>
+      <p id="payoutFormula"></p>
+    </div>
+  </div>
+  
+  <!-- Discount Timeout Upgrade Section -->
+  <div id="discountUpgradeSection" class="bar">
+    <h3>
+      Discount Timeout Upgrade (Current Timeout: <span id="discountTimeoutDisplay">60</span> sec, Upgrades: <span id="discountUpgradeLevel">0</span>/5)
+    </h3>
+    <button id="upgradeDiscountTimeoutBtn" onclick="upgradeDiscountTimeout()">
+      Upgrade Discount Timeout (500 Money)
+    </button>
+  </div>
+  
+  <!-- Gold bar with purchase and discount buttons -->
+  <div id="goldBar" class="bar hidden">
+    <h2>Gold: <span id="gold">0</span></h2>
+    <button id="buyGold1Btn" onclick="buyGold(1)">Buy 1 Gold (<span id="goldCost">10</span> Money)</button>
+    <button id="buyGold10Btn" onclick="buyGold(10)">Buy 10 Gold (<span id="goldCost10">90</span> Money)</button>
+    <button id="buyGold100Btn" onclick="buyGold(100)">Buy 100 Gold (<span id="goldCost100">900</span> Money)</button>
+    <br>
+    <button id="goldDiscountBtn" onclick="buyGoldDiscount()" disabled>
+      <!-- Text will be updated dynamically -->
+    </button>
+  </div>
+  
+  <!-- Rebirth bar with purchase and discount buttons -->
+  <div id="rebirthBar" class="bar hidden">
+    <h2>Rebirth: <span id="rebirth">0</span></h2>
+    <button id="buyRebirth1Btn" onclick="buyRebirth(1)">Buy 1 Rebirth (<span id="rebirthCost">100</span> Gold)</button>
+    <button id="buyRebirth10Btn" onclick="buyRebirth(10)">Buy 10 Rebirth (<span id="rebirthCost10">900</span> Gold)</button>
+    <br>
+    <button id="rebirthDiscountBtn" onclick="buyRebirthDiscount()" disabled>
+      <!-- Text will be updated dynamically -->
+    </button>
+  </div>
+  
+  <!-- Ascension bar with purchase and discount buttons -->
+  <div id="ascensionBar" class="bar hidden">
+    <h2>Ascension: <span id="ascension">0</span></h2>
+    <button id="buyAscension1Btn" onclick="buyAscension(1)">Buy 1 Ascension (<span id="ascensionCost">2000</span> Rebirth)</button>
+    <br>
+    <button id="ascensionDiscountBtn" onclick="buyAscensionDiscount()" disabled>
+      <!-- Text will be updated dynamically -->
+    </button>
+  </div>
+  
+  <!-- Chart container -->
+  <div id="chartContainer">
+    <canvas id="chartCanvas" width="400" height="200"></canvas>
+  </div>
+  
+  <script>
+    // Game state variables
+    let money = 0, gold = 0, rebirth = 0, ascension = 0;
+    let goldCost = 10, rebirthCost = 100, ascensionCost = 2000;
+    
+    // Discount cooldown (initially set to 60 seconds in milliseconds)
+    let discountCooldown = 60000; // allow upgrade
+    let discountUpgradeLevel = 0;
+    const maxDiscountUpgrades = 5;
+    const discountUpgradeCost = 500;
+    
+    // Discount fixed costs and discount factor (20% reduction)
+    const goldDiscountCost = 200;
+    const rebirthDiscountCost = 500;
+    const ascensionDiscountCost = 700;
+    const discountFactor = 0.5;
+    
+    // Track last discount purchase times (buying stock does not update these timers)
+    let lastGoldDiscountTime = Date.now();
+    let lastRebirthDiscountTime = Date.now();
+    let lastAscensionDiscountTime = Date.now();
+    
+    // Payout upgrade: Levels 0, 1, 2 correspond to tick intervals 1 sec, 0.7 sec, and 0.4 sec.
+    let payoutLevel = 0;
+    let payoutUpgradeCost = 100;
+    const payoutIntervals = [1000, 700, 400, 200]; // in milliseconds
+    
+    // Boost values for money production
+    const baseMoneyGain = 1;
+    const goldBoost = 1.2;       // each gold adds 1 money per tick
+    const rebirthBoost = 2;      // each rebirth adds 2 money per tick
+    const ascensionBoost = 5;    // each ascension adds 5 money per tick
+
+    let tickIntervalId;
+    
+    // Calculate bulk purchase price with built-in discounts:
+    // For 10 units: 5% discount, for 100 units: 10% discount.
+    function calculateBulkPrice(baseCost, quantity) {
+      let bulkDiscount = 1;
+      if (quantity === 10) bulkDiscount = 0.95;
+      if (quantity === 100) bulkDiscount = 0.90;
+      return Math.floor(baseCost * (Math.pow(1.1, quantity) - 1) / 0.1 * bulkDiscount);
+    }
+    
+    // Purchase functions (buying stock does not update discount timers)
+    function buyGold(quantity) {
+      let cost = calculateBulkPrice(goldCost, quantity);
+      if (money >= cost) {
+        money -= cost;
+        gold += quantity;
+        goldCost *= Math.pow(1.1, quantity);
+        updateDisplay();
+      }
+    }
+    
+    function buyRebirth(quantity) {
+      let cost = calculateBulkPrice(rebirthCost, quantity);
+      if (gold >= cost) {
+        gold -= cost;
+        rebirth += quantity;
+        rebirthCost *= Math.pow(1.1, quantity);
+        updateDisplay();
+      }
+    }
+    
+    function buyAscension(quantity) {
+      let totalCost = ascensionCost * quantity;
+      if (rebirth >= totalCost) {
+        rebirth -= totalCost;
+        ascension += quantity;
+        ascensionCost *= Math.pow(1.1, quantity);
+        updateDisplay();
+      }
+    }
+    
+    // Discount purchase functions (apply discount and reset discount timer)
+    function buyGoldDiscount() {
+      if (money >= goldDiscountCost && isDiscountAvailable(lastGoldDiscountTime)) {
+        money -= goldDiscountCost;
+        goldCost = Math.floor(goldCost * discountFactor);
+        lastGoldDiscountTime = Date.now();
+        updateDisplay();
+      }
+    }
+    
+    function buyRebirthDiscount() {
+      if (money >= rebirthDiscountCost && isDiscountAvailable(lastRebirthDiscountTime)) {
+        money -= rebirthDiscountCost;
+        rebirthCost = Math.floor(rebirthCost * discountFactor);
+        lastRebirthDiscountTime = Date.now();
+        updateDisplay();
+      }
+    }
+    
+    function buyAscensionDiscount() {
+      if (money >= ascensionDiscountCost && isDiscountAvailable(lastAscensionDiscountTime)) {
+        money -= ascensionDiscountCost;
+        ascensionCost = Math.floor(ascensionCost * discountFactor);
+        lastAscensionDiscountTime = Date.now();
+        updateDisplay();
+      }
+    }
+    
+    // Check if discount is available based on the last discount purchase time and current cooldown
+    function isDiscountAvailable(lastDiscountTime) {
+      return (Date.now() - lastDiscountTime) >= discountCooldown;
+    }
+    
+    // Upgrade the discount timeout for all discount buttons (-10 sec per 500 money, max 4 times)
+    function upgradeDiscountTimeout() {
+      if (money >= discountUpgradeCost && discountUpgradeLevel < maxDiscountUpgrades) {
+        money -= discountUpgradeCost;
+        discountUpgradeLevel++;
+        discountCooldown -= 10000; // reduce cooldown by 10 seconds (10000 ms)
+        updateDisplay();
+      }
+    }
+    
+    // Upgrade the payout speed (tick interval)
+    function upgradePayout() {
+      if (payoutLevel < payoutIntervals.length - 1 && money >= payoutUpgradeCost) {
+        money -= payoutUpgradeCost;
+        payoutLevel++;
+        payoutUpgradeCost *= 1.1;
+        updateGameTick();
+        updateDisplay();
+      }
+    }
+    
+    // Utility to format milliseconds into mm:ss format
+    function formatTime(ms) {
+      let totalSeconds = Math.ceil(ms / 1000);
+      let minutes = Math.floor(totalSeconds / 60);
+      let seconds = totalSeconds % 60;
+      return (minutes < 10 ? "0" + minutes : minutes) + ":" + (seconds < 10 ? "0" + seconds : seconds);
+    }
+    
+    // Update discount button text, disabled state, and color based on remaining cooldown using last discount time
+    function updateDiscountButton(buttonId, lastDiscountTime, cost, resourceName) {
+      const btn = document.getElementById(buttonId);
+      let elapsed = Date.now() - lastDiscountTime;
+      let remaining = discountCooldown - elapsed;
+      if (remaining > 0) {
+        btn.disabled = true;
+        btn.textContent = "Discount in " + formatTime(remaining);
+        btn.style.backgroundColor = "#FBC02D"; // muted yellow
+        btn.style.color = "black";
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Buy " + resourceName + " Discount (" + cost + " Money)";
+        if (money >= cost) {
+          btn.style.backgroundColor = "#66BB6A"; // muted green
+          btn.style.color = "black";
+        } else {
+          btn.style.backgroundColor = "#E57373"; // muted red
+          btn.style.color = "black";
+        }
+      }
+    }
+    
+    // Update button colors for purchase and upgrade buttons (based on affordability)
+    function updateButtonColors() {
+      // Upgrade Payout button
+      let upgradePayoutBtn = document.getElementById("upgradePayout");
+      if (payoutLevel < payoutIntervals.length - 1) {
+          if (money >= payoutUpgradeCost) {
+            upgradePayoutBtn.style.backgroundColor = "#66BB6A";
+            upgradePayoutBtn.style.color = "black";
+          } else {
+            upgradePayoutBtn.style.backgroundColor = "#E57373";
+            upgradePayoutBtn.style.color = "black";
+          }
+      } else {
+          upgradePayoutBtn.style.backgroundColor = "#E57373";
+          upgradePayoutBtn.style.color = "black";
+      }
+      
+      // Upgrade Discount Timeout button
+      let upgradeDiscountBtn = document.getElementById("upgradeDiscountTimeoutBtn");
+      if (discountUpgradeLevel < maxDiscountUpgrades) {
+          if (money >= discountUpgradeCost) {
+            upgradeDiscountBtn.style.backgroundColor = "#66BB6A";
+            upgradeDiscountBtn.style.color = "black";
+          } else {
+            upgradeDiscountBtn.style.backgroundColor = "#E57373";
+            upgradeDiscountBtn.style.color = "black";
+          }
+      } else {
+          upgradeDiscountBtn.style.backgroundColor = "#E57373";
+          upgradeDiscountBtn.style.color = "black";
+      }
+      
+      // Buy Gold buttons
+      let buyGold1Btn = document.getElementById("buyGold1Btn");
+      let costGold1 = calculateBulkPrice(goldCost, 1);
+      if (money >= costGold1) {
+        buyGold1Btn.style.backgroundColor = "#66BB6A";
+        buyGold1Btn.style.color = "black";
+      } else {
+        buyGold1Btn.style.backgroundColor = "#E57373";
+        buyGold1Btn.style.color = "black";
+      }
+      
+      let buyGold10Btn = document.getElementById("buyGold10Btn");
+      let costGold10 = calculateBulkPrice(goldCost, 10);
+      if (money >= costGold10) {
+        buyGold10Btn.style.backgroundColor = "#66BB6A";
+        buyGold10Btn.style.color = "black";
+      } else {
+        buyGold10Btn.style.backgroundColor = "#E57373";
+        buyGold10Btn.style.color = "black";
+      }
+      
+      let buyGold100Btn = document.getElementById("buyGold100Btn");
+      let costGold100 = calculateBulkPrice(goldCost, 100);
+      if (money >= costGold100) {
+        buyGold100Btn.style.backgroundColor = "#66BB6A";
+        buyGold100Btn.style.color = "black";
+      } else {
+        buyGold100Btn.style.backgroundColor = "#E57373";
+        buyGold100Btn.style.color = "black";
+      }
+      
+      // Buy Rebirth buttons
+      let buyRebirth1Btn = document.getElementById("buyRebirth1Btn");
+      let costRebirth1 = calculateBulkPrice(rebirthCost, 1);
+      if (gold >= costRebirth1) {
+        buyRebirth1Btn.style.backgroundColor = "#66BB6A";
+        buyRebirth1Btn.style.color = "black";
+      } else {
+        buyRebirth1Btn.style.backgroundColor = "#E57373";
+        buyRebirth1Btn.style.color = "black";
+      }
+      
+      let buyRebirth10Btn = document.getElementById("buyRebirth10Btn");
+      let costRebirth10 = calculateBulkPrice(rebirthCost, 10);
+      if (gold >= costRebirth10) {
+        buyRebirth10Btn.style.backgroundColor = "#66BB6A";
+        buyRebirth10Btn.style.color = "black";
+      } else {
+        buyRebirth10Btn.style.backgroundColor = "#E57373";
+        buyRebirth10Btn.style.color = "black";
+      }
+      
+      // Buy Ascension button
+      let buyAscension1Btn = document.getElementById("buyAscension1Btn");
+      let costAscension1 = ascensionCost; // for 1 ascension
+      if (rebirth >= costAscension1) {
+        buyAscension1Btn.style.backgroundColor = "#66BB6A";
+        buyAscension1Btn.style.color = "black";
+      } else {
+        buyAscension1Btn.style.backgroundColor = "#E57373";
+        buyAscension1Btn.style.color = "black";
+      }
+    }
+    
+    // Update game display, discount button states, upgrade info, and chart
+    function updateDisplay() {
+      document.getElementById('money').textContent = Math.floor(money);
+      document.getElementById('gold').textContent = gold;
+      document.getElementById('rebirth').textContent = rebirth;
+      document.getElementById('ascension').textContent = ascension;
+      
+      document.getElementById('goldCost').textContent = Math.floor(goldCost);
+      document.getElementById('goldCost10').textContent = calculateBulkPrice(goldCost, 10);
+      document.getElementById('goldCost100').textContent = calculateBulkPrice(goldCost, 100);
+      
+      document.getElementById('rebirthCost').textContent = Math.floor(rebirthCost);
+      document.getElementById('rebirthCost10').textContent = calculateBulkPrice(rebirthCost, 10);
+      
+      document.getElementById('ascensionCost').textContent = Math.floor(ascensionCost);
+      
+      document.getElementById('payoutIntervalDisplay').textContent = (payoutIntervals[payoutLevel] / 1000).toFixed(1);
+      if(payoutLevel < payoutIntervals.length - 1) {
+        document.getElementById('upgradePayout').disabled = false;
+        document.getElementById('upgradePayout').textContent = 
+          "Upgrade Payout (" + Math.floor(payoutUpgradeCost) + " Money)";
+      } else {
+        document.getElementById('upgradePayout').disabled = true;
+        document.getElementById('upgradePayout').textContent = "Payout Upgrade MAXED";
+      }
+      
+      document.getElementById('payoutFormula').textContent = 
+        "Payout: " + baseMoneyGain + " + (" + gold + " x " + goldBoost + ") = " +
+        (baseMoneyGain + gold * goldBoost) + " per " + (payoutIntervals[payoutLevel] / 1000).toFixed(1) + " sec";
+      
+      // Unlock resource bars as needed
+      if (gold > 0 || money >= 10) document.getElementById('goldBar').classList.remove('hidden');
+      if (rebirth > 0 || gold >= 100) document.getElementById('rebirthBar').classList.remove('hidden');
+      if (ascension > 0 || rebirth >= 2000) document.getElementById('ascensionBar').classList.remove('hidden');
+      
+      // Update discount buttons based on independent discount timers
+      updateDiscountButton("goldDiscountBtn", lastGoldDiscountTime, goldDiscountCost, "Gold");
+      updateDiscountButton("rebirthDiscountBtn", lastRebirthDiscountTime, rebirthDiscountCost, "Rebirth");
+      updateDiscountButton("ascensionDiscountBtn", lastAscensionDiscountTime, ascensionDiscountCost, "Ascension");
+      
+      // Update discount timeout upgrade display
+      document.getElementById('discountTimeoutDisplay').textContent = (discountCooldown / 1000).toFixed(0);
+      document.getElementById('discountUpgradeLevel').textContent = discountUpgradeLevel;
+      if (discountUpgradeLevel >= maxDiscountUpgrades) {
+        document.getElementById('upgradeDiscountTimeoutBtn').disabled = true;
+        document.getElementById('upgradeDiscountTimeoutBtn').textContent = "Discount Timeout Upgrade MAXED";
+      } else {
+        document.getElementById('upgradeDiscountTimeoutBtn').disabled = false;
+        document.getElementById('upgradeDiscountTimeoutBtn').textContent = "Upgrade Discount Timeout (500 Money)";
+      }
+      
+      // Update chart
+      resourceChart.data.datasets[0].data = [money, gold, rebirth, ascension];
+      resourceChart.update();
+      
+      // Update button colors based on affordability and waiting status
+      updateButtonColors();
+    }
+    
+    // Game tick: add money based on resources and boost values
+    function gameTick() {
+      let gain = baseMoneyGain + (gold * goldBoost) + (rebirth * rebirthBoost) + (ascension * ascensionBoost);
+      money += gain;
+      updateDisplay();
+    }
+    
+    // Restart game tick with the current payout interval
+    function updateGameTick() {
+      if (tickIntervalId) clearInterval(tickIntervalId);
+      tickIntervalId = setInterval(gameTick, payoutIntervals[payoutLevel]);
+    }
+    
+    // Initialize Chart.js bar chart
+    const ctx = document.getElementById('chartCanvas').getContext('2d');
+    const resourceChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Money', 'Gold', 'Rebirth', 'Ascension'],
+        datasets: [{
+          label: 'Resources',
+          data: [money, gold, rebirth, ascension],
+          backgroundColor: [
+            'rgba(255, 99, 132, 0.2)',
+            'rgba(54, 162, 235, 0.2)',
+            'rgba(255, 206, 86, 0.2)',
+            'rgba(75, 192, 192, 0.2)'
+          ],
+          borderColor: [
+            'rgba(255, 99, 132, 1)',
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(75, 192, 192, 1)'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { color: "#fff" },
+            grid: { color: 'rgba(255,255,255,0.2)' }
+          },
+          x: {
+            ticks: { color: "#fff" },
+            grid: { display: false }
+          }
+        },
+        plugins: { legend: { labels: { color: "#fff" } } }
+      }
+    });
+    
+    // Start the game tick and update display every second (to update discount timers)
+    updateGameTick();
+    setInterval(updateDisplay, 1000);
+    updateDisplay();
+  </script>
+</body>
+</html>
