@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minigames Portal</title>
+  <style>
+    /* Dark theme and base styles */
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      font-family: Arial, sans-serif;
+      color: #fff;
+      overflow: hidden;
+    }
+    .container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    /* All game iframes (preloaded) */
+    .game-frame {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .hidden {
+      display: none;
+    }
+    /* Navigation arrows styling */
+    .nav-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 3rem;
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      color: #fff;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #leftArrow {
+      left: 10px;
+    }
+    #rightArrow {
+      right: 10px;
+    }
+    /* Pause/Resume button */
+    #pauseButton {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1.5rem;
+      background: rgba(0, 0, 0, 0.7);
+      border: none;
+      color: #fff;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      z-index: 10;
+    }
+    /* Pause overlay */
+    #pauseOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      font-size: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Navigation controls -->
+    <button id="leftArrow" class="nav-arrow">&#8592;</button>
+    <button id="rightArrow" class="nav-arrow">&#8594;</button>
+    <button id="pauseButton">Pause</button>
+    
+    <!-- Preloaded minigame iframes -->
+    <iframe id="game0" class="game-frame" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/0.html"></iframe>
+    <iframe id="game1" class="game-frame hidden" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/1.html"></iframe>
+    <iframe id="game2" class="game-frame hidden" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/2.html"></iframe>
+    <iframe id="game3" class="game-frame hidden" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/3.html"></iframe>
+    <iframe id="game4" class="game-frame hidden" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/4.html"></iframe>
+    <iframe id="game5" class="game-frame hidden" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/5.html"></iframe>
+    
+    <!-- Pause overlay -->
+    <div id="pauseOverlay">Paused</div>
+  </div>
+
+  <script>
+    const totalGames = 6;
+    // Get current game index from localStorage (default to 0)
+    let currentGame = Number(localStorage.getItem('currentGame')) || 0;
+    const iframes = [];
+    for (let i = 0; i < totalGames; i++) {
+      iframes.push(document.getElementById('game' + i));
+    }
+
+    const leftArrow = document.getElementById('leftArrow');
+    const rightArrow = document.getElementById('rightArrow');
+    const pauseButton = document.getElementById('pauseButton');
+    const pauseOverlay = document.getElementById('pauseOverlay');
+
+    // Show only the specified game iframe and store the progress
+    function showGame(index) {
+      iframes.forEach((frame, i) => {
+        if (i === index) {
+          frame.classList.remove('hidden');
+        } else {
+          frame.classList.add('hidden');
+        }
+      });
+      currentGame = index;
+      localStorage.setItem('currentGame', currentGame);
+    }
+
+    leftArrow.addEventListener('click', () => {
+      let newIndex = currentGame - 1;
+      if (newIndex < 0) {
+        newIndex = totalGames - 1;
+      }
+      showGame(newIndex);
+    });
+
+    rightArrow.addEventListener('click', () => {
+      let newIndex = (currentGame + 1) % totalGames;
+      showGame(newIndex);
+    });
+
+    // Allow arrow key navigation and pause toggling via "P" key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') {
+        leftArrow.click();
+      } else if (e.key === 'ArrowRight') {
+        rightArrow.click();
+      } else if (e.key.toLowerCase() === 'p') {
+        pauseButton.click();
+      }
+    });
+
+    // Toggle pause overlay. (You can expand this by sending a pause/resume message
+    // to the iframe if your minigames support it via postMessage.)
+    let isPaused = false;
+    pauseButton.addEventListener('click', () => {
+      if (isPaused) {
+        pauseOverlay.style.display = 'none';
+        pauseButton.textContent = 'Pause';
+        isPaused = false;
+      } else {
+        pauseOverlay.style.display = 'flex';
+        pauseButton.textContent = 'Resume';
+        isPaused = true;
+      }
+    });
+
+    // Initialize the view with the saved game index
+    showGame(currentGame);
+  </script>
+</body>
+</html>
