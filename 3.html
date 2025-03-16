@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infinite Zoom: Cyclic Black Hole, Stars & Suns</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+  // Get canvas and context.
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  /* =====================
+       SIMULATION SETTINGS
+     ===================== */
+
+  // --- Zoom settings ---
+  let currentZoom = 1.0;
+  const zoomOutThreshold = 300; // When drawn black hole radius exceeds this (in pixels), trigger zoom out.
+  const zoomOutFactor = 0.5;    // Drastic reduction of the drawn scale when zooming out.
+  const MIN_BLACKHOLE_DRAW = 20;
+  const MIN_OBJECT_DRAW = 2;
+
+  // --- Black hole simulation parameters ---
+  const initialBlackHoleRadius = 100;  // Reset simulation radius at each zoom-out cycle.
+  let blackHoleRadius = initialBlackHoleRadius;
+  let cycleCount = 0;             // Counts how many zoom-out cycles have occurred.
+  let sunSizeMultiplier = 1.0;    // Suns spawn larger in later cycles.
+
+  // --- Gravity & friction (simulation units) ---
+  const gravityConstant = 50;
+  const friction = 0.99;
+
+  // --- Growth factors ---
+  // How much the black hole grows when devouring each object.
+  const PARTICLE_GROWTH = 0.1;
+  const STAR_GROWTH     = 0.3;
+  const SUN_GROWTH      = 0.5;
+
+  // --- Base object radii (simulation units) ---
+  const PARTICLE_RADIUS = 10;
+  const STAR_RADIUS     = 20;
+  const SUN_RADIUS      = 30;
+
+  // --- Gravity multipliers ---
+  // Lower multiplier means the object is less affected by the pull (or sucked in more slowly).
+  const PARTICLE_GRAVITY_MULTIPLIER = 1.0;
+  const STAR_GRAVITY_MULTIPLIER     = 0.5;
+  const SUN_GRAVITY_MULTIPLIER      = 0.3;
+
+  // --- New Spawn Settings ---
+  // How often to spawn a new object (chance per frame).
+  const SPAWN_PROBABILITY = 0.2;
+  // How far beyond the current black hole radius objects should spawn.
+  const SPAWN_EXTRA_MARGIN = 200;
+  // Range (in simulation units) over which new objects are spawned beyond the extra margin.
+  const SPAWN_DISTANCE_RANGE = 700;
+  // Initial speed range for new objects (in simulation units per frame).
+  const MIN_INITIAL_SPEED = 0.2;
+  const MAX_INITIAL_SPEED = 10.0;
+
+  // Array to hold simulation objects.
+  // Each object has: { x, y, dx, dy, radius, type, gravityMultiplier, growthFactor, color }
+  let objects = [];
+
+  /* =====================
+       SPAWN FUNCTION
+     ===================== */
+  function spawnObject() {
+    // Spawn at a random angle and at a distance outside the current black hole.
+    const angle = Math.random() * 2 * Math.PI;
+    // Calculate a dynamic spawn margin (at least the black hole's radius plus extra margin).
+    const spawnMargin = blackHoleRadius + SPAWN_EXTRA_MARGIN;
+    const distance = spawnMargin + Math.random() * SPAWN_DISTANCE_RANGE;
+    const x = Math.cos(angle) * distance;
+    const y = Math.sin(angle) * distance;
+    
+    // Randomly choose object type:
+    // 3% chance for a sun, 10% for a star, otherwise a particle.
+    let type, radius, gravityMultiplier, growthFactor, color;
+    const r = Math.random();
+    if (r < 0.03) {
+      type = 'sun';
+      // Suns get larger each cycle.
+      radius = SUN_RADIUS * sunSizeMultiplier;
+      gravityMultiplier = SUN_GRAVITY_MULTIPLIER;
+      growthFactor = SUN_GROWTH;
+      color = "orange";
+    } else if (r < 0.13) {
+      type = 'star';
+      radius = STAR_RADIUS; // Stars remain constant in size (can be adjusted as needed).
+      gravityMultiplier = STAR_GRAVITY_MULTIPLIER;
+      growthFactor = STAR_GROWTH;
+      color = "yellow";
+    } else {
+      type = 'particle';
+      radius = PARTICLE_RADIUS;
+      gravityMultiplier = PARTICLE_GRAVITY_MULTIPLIER;
+      growthFactor = PARTICLE_GROWTH;
+      color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+    }
+
+    // Assign an initial speed between MIN_INITIAL_SPEED and MAX_INITIAL_SPEED.
+    const speed = MIN_INITIAL_SPEED + Math.random() * (MAX_INITIAL_SPEED - MIN_INITIAL_SPEED);
+    const velocityAngle = Math.random() * 2 * Math.PI;
+    const dx = speed * Math.cos(velocityAngle);
+    const dy = speed * Math.sin(velocityAngle);
+
+    objects.push({ x, y, dx, dy, radius, type, gravityMultiplier, growthFactor, color });
+  }
+
+  // Spawn some initial objects.
+  for (let i = 0; i < 100; i++) {
+    spawnObject();
+  }
+
+  /* =====================
+       UPDATE & DRAW FUNCTIONS
+     ===================== */
+
+  // Update positions and velocities of all objects.
+  function updateObjects() {
+    for (let obj of objects) {
+      // Compute vector from object to center (black hole at (0,0)).
+      let vecX = -obj.x;
+      let vecY = -obj.y;
+      let dist = Math.sqrt(vecX * vecX + vecY * vecY);
+      if (dist === 0) dist = 0.001;  // Avoid division by zero.
+      // Inverse-linear gravitational pull.
+      let force = (gravityConstant / dist) * obj.gravityMultiplier;
+      let angleToCenter = Math.atan2(vecY, vecX);
+      obj.dx += Math.cos(angleToCenter) * force;
+      obj.dy += Math.sin(angleToCenter) * force;
+      // Apply friction.
+      obj.dx *= friction;
+      obj.dy *= friction;
+      // Update object position.
+      obj.x += obj.dx;
+      obj.y += obj.dy;
+    }
+  }
+
+  // Draw all objects with positions and sizes scaled by currentZoom.
+  function drawObjects() {
+    for (let obj of objects) {
+      let drawnRadius = Math.max(obj.radius * currentZoom, MIN_OBJECT_DRAW);
+      ctx.beginPath();
+      ctx.arc(obj.x * currentZoom, obj.y * currentZoom, drawnRadius, 0, Math.PI * 2);
+      ctx.fillStyle = obj.color;
+      ctx.fill();
+      ctx.closePath();
+    }
+  }
+
+  // Remove objects that have been devoured by the black hole and grow the black hole accordingly.
+  function removeDevouredObjects() {
+    for (let i = objects.length - 1; i >= 0; i--) {
+      let obj = objects[i];
+      let dist = Math.sqrt(obj.x * obj.x + obj.y * obj.y);
+      if (dist < blackHoleRadius) {
+        // Increase the black hole's radius based on the object's size.
+        blackHoleRadius += obj.radius * obj.growthFactor;
+        objects.splice(i, 1);
+      }
+    }
+  }
+
+  // Check and trigger a zoom-out cycle when the drawn black hole exceeds the threshold.
+  function checkZoomOut() {
+    let drawnBlackHole = blackHoleRadius * currentZoom;
+    if (drawnBlackHole > zoomOutThreshold) {
+      cycleCount++;
+      console.log("Zoom out cycle:", cycleCount);
+      // Increase the sun multiplier so that future suns spawn larger.
+      sunSizeMultiplier *= 1.2;
+      // Drastically reduce the drawn size by lowering currentZoom.
+      currentZoom *= zoomOutFactor;
+      // Reset the black hole's simulation radius.
+      blackHoleRadius = initialBlackHoleRadius;
+    }
+  }
+
+  // Draw the black hole at the center.
+  function drawBlackHole() {
+    let drawnRadius = Math.max(blackHoleRadius * currentZoom, MIN_BLACKHOLE_DRAW);
+    ctx.beginPath();
+    ctx.arc(0, 0, drawnRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "black";
+    ctx.fill();
+    ctx.closePath();
+
+    // Optionally, draw an event horizon outline.
+    ctx.beginPath();
+    ctx.arc(0, 0, drawnRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.closePath();
+  }
+
+  /* =====================
+         ANIMATION LOOP
+     ===================== */
+  function animate() {
+    // Clear the canvas.
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    // Translate so that simulation coordinates (0,0) are at the center of the canvas.
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+
+    updateObjects();
+    removeDevouredObjects();
+    checkZoomOut();
+
+    // Continuously spawn new objects based on the spawn probability.
+    if (Math.random() < SPAWN_PROBABILITY) {
+      spawnObject();
+    }
+
+    drawObjects();
+    drawBlackHole();
+
+    ctx.restore();
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+</script>
+</body>
+</html>
