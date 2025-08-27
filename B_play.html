@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minigames Portal</title>
+  <style>
+    /* Global dark theme */
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    /* The iframe container */
+    #iframeContainer {
+      width: 100vw;
+      height: 80vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+    /* The iframe itself */
+    .game-frame {
+      width: 80%;
+      height: 100%;
+      border: none;
+    }
+    /* The info and navigation section */
+    #info {
+      position: absolute;
+      bottom: 20px; /* Reduced space from bottom */
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    /* Navigation arrow styling */
+    .nav-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 3rem;
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      color: #fff;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #leftArrow {
+      left: 10px;
+    }
+    #rightArrow {
+      right: 10px;
+    }
+    /* Style for the game URL and open button */
+    #gameLink {
+      color: #ff6347;
+      margin-top: 10px;
+      font-size: 1.2rem;
+      word-wrap: break-word;
+    }
+    #openButton {
+      background: #ff6347;
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <!-- The container for the iframe -->
+  <div id="iframeContainer">
+    <iframe id="gameFrame" class="game-frame" src="https://raw.githack.com/koo1140/minigames/refs/heads/main/0.html"></iframe>
+  </div>
+
+  <!-- Navigation controls -->
+  <button id="leftArrow" class="nav-arrow">&#8592;</button>
+  <button id="rightArrow" class="nav-arrow">&#8594;</button>
+
+  <!-- Game info section -->
+  <div id="info">
+    <div id="gameLink">Current game URL: <span id="urlDisplay">https://raw.githack.com/koo1140/minigames/refs/heads/main/0.html</span></div>
+    <button id="openButton" onclick="openInNewTab()">Open in New Tab</button>
+  </div>
+
+  <script>
+    const totalGames = 6;
+    let currentGame = 0;
+
+    // The iframe element
+    const gameFrame = document.getElementById('gameFrame');
+    const urlDisplay = document.getElementById('urlDisplay');
+
+    // Array of game URLs
+    const gameUrls = [
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/0.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/1.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/2.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/3.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/4.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/5.html",
+      "https://raw.githack.com/koo1140/minigames/refs/heads/main/6.html"
+    ];
+
+    // Function to load a specific game based on index
+    function loadGame(index) {
+      gameFrame.src = gameUrls[index];
+      urlDisplay.textContent = gameUrls[index]; // Display the current URL
+      currentGame = index;
+    }
+
+    // Function to open the current game in a new tab
+    function openInNewTab() {
+      window.open(gameUrls[currentGame], '_blank');
+    }
+
+    // Navigation arrow event handlers
+    document.getElementById('leftArrow').addEventListener('click', () => {
+      let newIndex = currentGame - 1;
+      if (newIndex < 0) newIndex = totalGames - 1;
+      loadGame(newIndex);
+    });
+
+    document.getElementById('rightArrow').addEventListener('click', () => {
+      let newIndex = (currentGame + 1) % totalGames;
+      loadGame(newIndex);
+    });
+
+    // Allow keyboard navigation with left/right arrow keys
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') {
+        document.getElementById('leftArrow').click();
+      } else if (e.key === 'ArrowRight') {
+        document.getElementById('rightArrow').click();
+      }
+    });
+  </script>
+</body>
+</html>
