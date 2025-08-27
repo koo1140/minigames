@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Reactor — Super Coolant (limited)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg:#f4f7fb; --panel:#ffffff; --muted:#6b7280; --accent:#0b66ff;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:#071427}
+  .wrap{max-width:1260px;margin:14px auto;padding:12px;display:grid;grid-template-columns:260px 1fr;gap:12px}
+  header{grid-column:1/-1;display:flex;align-items:center;gap:12px}
+  h1{font-size:18px;margin:0}
+  .leftPanel{background:var(--panel);padding:12px;border-radius:10px;box-shadow:0 8px 28px rgba(10,12,20,0.06)}
+  .rightPanel{background:transparent}
+  .controls{display:flex;gap:8px;align-items:center;margin-top:8px}
+  button{background:#0f1724;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+  button[disabled]{opacity:0.5;cursor:default}
+  .card{background:var(--panel);padding:10px;border-radius:8px;box-shadow:0 6px 16px rgba(30,40,50,0.06);margin-bottom:10px}
+  .label{font-size:12px;color:var(--muted)}
+  .stat{font-weight:700;font-size:18px;margin-top:6px}
+  canvas{display:block;border-radius:8px;background:linear-gradient(#fafcff,#eef6fb);box-shadow:0 10px 32px rgba(12,18,25,0.06);width:100%}
+  .rodControls{display:flex;gap:6px;align-items:flex-end;margin-top:12px;justify-content:center}
+  .rodCtl{display:flex;flex-direction:column;align-items:center;width:56px}
+  .rodCtl .tag{font-size:12px;margin-bottom:8px}
+  .v-range{width:52px;transform:rotate(-90deg);margin-top:12px}
+  .small{font-size:12px;color:var(--muted)}
+  .legend{font-size:13px}
+  .legend .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  .sw{width:18px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,0.06)}
+  .sw-circle{width:14px;height:14px;border-radius:50%;border:2px solid #000;display:inline-block}
+  .statsRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .statSmall{background:var(--panel);padding:10px;border-radius:8px;box-shadow:0 4px 12px rgba(12,18,25,0.04);min-width:150px}
+  .footer{grid-column:1/-1;color:var(--muted);font-size:13px;margin-top:8px}
+  /* overlays */
+  .overlayMsg{
+    position:absolute;left:50%;transform:translateX(-50%);top:40px;padding:14px 18px;border-radius:10px;font-weight:700;font-size:15px;
+    box-shadow:0 10px 26px rgba(0,0,0,0.15);pointer-events:none;opacity:0;transition:opacity 200ms;
+  }
+  .overlayMsg.warn{background:#fff5c7;color:#7a5200;border:1px solid rgba(122,82,0,0.08)}
+  .overlayMsg.critical{background:#ffe0e0;color:#7a0808;border:1px solid rgba(122,8,8,0.08)}
+  /* explosion fullscreen */
+  .explosionFull {
+    position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:34px;color:#fff;font-weight:800;z-index:9999;pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Nuclear Reactor — Super Coolant Limited</h1>
+    <div style="flex:1"></div>
+    <div class="small">Super Coolant now only halves things and is single-use.</div>
+  </header>
+
+  <!-- LEFT: legend & controls -->
+  <aside class="leftPanel">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>Controls</strong></div>
+      </div>
+      <div class="controls" style="margin-top:8px">
+        <button id="toggle">Start</button>
+        <button id="reset">Reset</button>
+        <button id="superCool">Super Coolant</button>
+      </div>
+
+      <div style="margin-top:10px" class="small">Simulation Speed</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1" />
+        <div id="speedVal" class="small">1.00×</div>
+      </div>
+    </div>
+
+    <div class="card legend">
+      <div style="font-weight:700;margin-bottom:6px">Legend</div>
+      <div class="row"><div class="sw" style="background:linear-gradient(90deg,#1147ff,#ff3b3b)"></div><div>Water temp (blue → red)</div></div>
+      <div class="row"><div class="sw" style="background:#ff2b2b"></div><div>Evaporated / Steam (bright red)</div></div>
+      <div class="row"><div class="sw" style="background:#000"></div><div>Moving particle / neutron (black)</div></div>
+      <div class="row"><div class="sw-circle" style="background:#fff"></div><div>Uranium pellet (white, black outline)</div></div>
+      <div class="row"><div class="sw" style="background:rgba(110,58,200,0.9)"></div><div>Xenon presence (purple ring)</div></div>
+      <div class="row"><div class="sw" style="background:#333"></div><div>Control rod (dark shaft) + orange depth line</div></div>
+      <div class="row"><div class="sw" style="background:#ffc64d"></div><div>Heat glow (yellow)</div></div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700">Core Stats</div>
+      <div class="statsRow" style="margin-top:8px">
+        <div class="statSmall"><div class="label">Neutrons</div><div id="statNeut" class="stat">0</div></div>
+        <div class="statSmall"><div class="label">Water cells</div><div id="statWater" class="stat">0</div></div>
+        <div class="statSmall"><div class="label">Xenon (avg)</div><div id="statXen" class="stat">0.000</div></div>
+      </div>
+      <div style="margin-top:10px" class="small">Power: <span id="statPower">0 MW</span></div>
+    </div>
+
+  </aside>
+
+  <!-- RIGHT: canvas + rod sliders -->
+  <main class="rightPanel">
+    <div style="background:transparent;padding:0;position:relative">
+      <canvas id="c" width="1150" height="620"></canvas>
+
+      <!-- overlay messages (hidden/shown dynamically) -->
+      <div id="warnOverlay" class="overlayMsg warn">Please cool down the reactor.</div>
+      <div id="critOverlay" class="overlayMsg critical">CRITICAL: Reactor will lexplode soon! Cool down the reactor imediatelly!</div>
+
+      <!-- rod sliders directly under canvas -->
+      <div id="rodControls" class="rodControls" aria-hidden="false"></div>
+    </div>
+  </main>
+
+  <div class="footer">This simulation is simplified and visual — not a physical reactor model.</div>
+</div>
+
+<!-- explosion element (inserted when explosion happens) -->
+<div id="explosionShell" style="display:none"></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c'), ctx = canvas.getContext('2d', {antialias:true});
+  const W = canvas.width, H = canvas.height;
+  const pad = 28;
+  const cols = 36, rows = 18;
+  const cellW = (W - pad*2)/cols, cellH = (H - pad*2)/rows;
+  const pelletR = Math.min(cellW, cellH) * 0.32;
+
+  // params (including cooling & absorption heat)
+  const params = {
+    neutronSpeed: 70,
+    heatFromNeutron: 0.14,
+    evaporationTemp: 1.05,
+    regenTime: 10000,
+    heatDiffusion: 0.08,
+    xenonProdPerFlux: 0.018,
+    xenonBurnPerFlux: 0.032,
+    xenonDecayRate: 0.00006,
+    powerPerHeat: 260,
+    fissionYieldNeutrons: 2.2,
+    uraniumBurnPerFission: 0.0006,
+
+    // new tunables
+    waterCoolingRate: 0.00012,   // lower => water cools more slowly
+    absorptionHeat: 0.18         // heat deposited when a neutron is absorbed
+  };
+
+  // core state
+  const cells = [];
+  function initCells() {
+    for (let y=0;y<rows;y++){
+      cells[y]=[];
+      for (let x=0;x<cols;x++){
+        const fuelChance = 0.18 + 0.06*Math.sin((x*7+y*11)/9);
+        const isDry = Math.random() < 0.06;
+        cells[y][x] = {
+          water: isDry ? 0.0 : 1.0,
+          temp: Math.random()*0.06,
+          fuel: Math.random() < fuelChance ? 1.0 : 0.0,
+          xenon: Math.random()*0.02,
+          evapAt: 0
+        };
+      }
+    }
+  }
+  initCells();
+
+  // rods
+  const rodCols = [2,7,12,17,22,26,30,34];
+  const rods = rodCols.map(c => ({col:c, insert:0.0}));
+  const rodControls = document.getElementById('rodControls');
+
+  // track if super coolant already used
+  let superCoolUsed = false;
+
+  // create vertical glider sliders under rods
+  rods.forEach((r, i) => {
+    const wrap = document.createElement('div'); wrap.className='rodCtl';
+    const tag = document.createElement('div'); tag.className='tag'; tag.textContent = 'R' + (i+1);
+    const input = document.createElement('input'); input.type='range'; input.min=0; input.max=100; input.value=0; input.className='v-range';
+    const val = document.createElement('div'); val.className='rodValue'; val.textContent = '0%';
+    input.addEventListener('input', (e) => { r.insert = Number(e.target.value)/100; val.textContent = Math.round(r.insert*100) + '%'; });
+    wrap.appendChild(tag); wrap.appendChild(input); wrap.appendChild(val);
+    rodControls.appendChild(wrap);
+  });
+
+  // particles
+  let particles = [];
+  function spawnParticle(x,y,dx,dy) {
+    const p = {
+      x: x ?? (pad + Math.random()*cols*cellW),
+      y: y ?? (pad + Math.random()*rows*cellH),
+      vx: dx ?? (Math.random()*2-1),
+      vy: dy ?? (Math.random()*2-1),
+      r: 3 + Math.random()*3, life: 9000 + Math.random()*10000, born: performance.now()
+    };
+    const m = Math.hypot(p.vx,p.vy)||1; p.vx/=m; p.vy/=m;
+    particles.push(p);
+  }
+  for (let i=0;i<28;i++) spawnParticle();
+
+  // UI refs
+  const toggleBtn = document.getElementById('toggle'), resetBtn = document.getElementById('reset'), superCoolBtn = document.getElementById('superCool');
+  const speedInput = document.getElementById('speed'), speedVal = document.getElementById('speedVal');
+  const statNeut = document.getElementById('statNeut'), statWater = document.getElementById('statWater'), statXen = document.getElementById('statXen'), statPower = document.getElementById('statPower');
+  const warnOverlay = document.getElementById('warnOverlay'), critOverlay = document.getElementById('critOverlay');
+
+  let running=false, exploded=false;
+  toggleBtn.onclick = ()=>{ if (!exploded) { running = !running; toggleBtn.textContent = running ? 'Pause' : 'Start'; } };
+  resetBtn.onclick = ()=>{ if (exploded) return; initCells(); particles=[]; for(let i=0;i<28;i++) spawnParticle(); rods.forEach(r=>r.insert=0); const inputs = rodControls.querySelectorAll('input'); inputs.forEach(i=>i.value=0); const vals = rodControls.querySelectorAll('.rodValue'); vals.forEach(v=>v.textContent='0%'); superCoolUsed=false; superCoolBtn.disabled=false; superCoolBtn.textContent='Super Coolant'; };
+  superCoolBtn.onclick = ()=>{ if (exploded) return; applyLimitedSuperCoolant(); };
+
+  speedInput.oninput = () => { speedVal.textContent = Number(speedInput.value).toFixed(2) + '×'; };
+
+  // helpers
+  function idxAt(px,py){ return { ix: Math.floor((px-pad)/cellW), iy: Math.floor((py-pad)/cellH) }; }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function waterColor(t) {
+    const tt = Math.max(0, Math.min(1, t));
+    const r = Math.round(lerp(17,255,tt));
+    const g = Math.round(lerp(71,59,tt));
+    const b = Math.round(lerp(255,59,tt));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // apply LIMITED super coolant: single-use, halves many things and only partially refills water
+  function applyLimitedSuperCoolant() {
+    if (superCoolUsed) { flashMessage('Super Coolant already used', 900, '#fff3f3', '#7a0808'); return; }
+    superCoolUsed = true;
+    superCoolBtn.disabled = true; superCoolBtn.textContent = 'Used';
+
+    // remove ~50% of particles (randomly)
+    const keep = [];
+    for (let i=0;i<particles.length;i++){
+      if (Math.random() < 0.5) keep.push(particles[i]);
+    }
+    particles = keep;
+
+    // for each cell: halve fuel, halve xenon, cool temperatures, partially restore water (to at least 60%)
+    for (let y=0;y<rows;y++){
+      for (let x=0;x<cols;x++){
+        const c = cells[y][x];
+        c.fuel = c.fuel * 0.5;           // half the uranium mass
+        c.xenon = c.xenon * 0.5;         // half xenon concentration
+        c.temp = c.temp * 0.45;         // strong cooling but not zero
+        if (c.water < 0.6) { c.water = 0.6; c.evapAt = 0; } // refill evaporated to 60%
+        else { c.water = Math.max(c.water, 0.6); }
+      }
+    }
+
+    flashMessage('Super Coolant applied (limited)', 1100, '#e6f7ff', '#084d7a');
+  }
+
+  // overlay flash helper
+  function flashMessage(text, ms=800, bg='#e6f7ff', fg='#073b56'){
+    const el = document.createElement('div');
+    el.style.position = 'absolute'; el.style.left='50%'; el.style.transform='translateX(-50%)';
+    el.style.top='16px'; el.style.padding='10px 14px'; el.style.borderRadius='8px'; el.style.fontWeight='700';
+    el.style.background = bg; el.style.color = fg; el.style.boxShadow = '0 10px 26px rgba(0,0,0,0.12)';
+    el.textContent = text; document.body.appendChild(el);
+    setTimeout(()=>{ el.style.transition='opacity 300ms'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, ms);
+  }
+
+  // physics step (with absorption heat when particle absorbed)
+  let lastNow = performance.now();
+  function step(now) {
+    const speed = Number(speedInput.value) || 1;
+    const dtRaw = Math.min(80, now - lastNow);
+    const dt = dtRaw * speed;
+    lastNow = now;
+
+    for (let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.x += p.vx * params.neutronSpeed * (dt/1000);
+      p.y += p.vy * params.neutronSpeed * (dt/1000);
+      p.life -= dt;
+      const minX = pad, maxX = pad + cols*cellW, minY = pad, maxY = pad + rows*cellH;
+      if (p.x < minX) { p.x = minX+2; p.vx *= -1; }
+      if (p.x > maxX) { p.x = maxX-2; p.vx *= -1; }
+      if (p.y < minY) { p.y = minY+2; p.vy *= -1; }
+      if (p.y > maxY) { p.y = maxY-2; p.vy *= -1; }
+
+      const {ix, iy} = idxAt(p.x, p.y);
+      if (ix>=0 && ix<cols && iy>=0 && iy<rows) {
+        const c = cells[iy][ix];
+        const rod = rods.find(r => r.col === ix);
+
+        // rod absorption with added heat deposit to cell
+        if (rod && rod.insert > 0.001) {
+          if (Math.random() < 0.18 * rod.insert + 0.04) {
+            // deposit absorption heat to the impacted cell
+            c.temp = Math.min(5.0, c.temp + params.absorptionHeat);
+            particles.splice(i,1);
+            continue;
+          }
+        }
+
+        // normal interaction - neutron may heat water and produce xenon etc.
+        const xenonFactor = Math.exp(-c.xenon * 6);
+        if (c.water > 0.05) {
+          c.temp += params.heatFromNeutron * (dt/1000);
+          c.xenon += params.xenonProdPerFlux * (dt/1000);
+          c.xenon = Math.max(0, c.xenon - params.xenonBurnPerFlux * (dt/1000));
+        } else {
+          c.xenon += params.xenonProdPerFlux * 0.2 * (dt/1000);
+        }
+
+        // possibility of fission if uranium present (spawns new neutrons)
+        if (c.fuel > 0.002 && Math.random() < 0.0025 * xenonFactor * (dt/16) * (1 + c.temp)) {
+          const produced = Math.max(1, Math.round(params.fissionYieldNeutrons * c.fuel * (0.8 + Math.random()*0.6)));
+          for (let k=0;k<produced;k++){
+            const a = Math.random()*Math.PI*2;
+            spawnParticle(pad + ix*cellW + cellW/2, pad + iy*cellH + cellH/2, Math.cos(a), Math.sin(a));
+          }
+          c.temp += 0.25 + Math.random()*0.18;
+          c.fuel = Math.max(0, c.fuel - params.uraniumBurnPerFission * (0.8 + Math.random()*0.6));
+        }
+
+        // If neutron hits cell and is absorbed by something else (chance), deposit some heat
+        if (Math.random() < 0.002 * (dt/16)) {
+          c.temp = Math.min(5.0, c.temp + params.absorptionHeat * 0.2);
+        }
+
+        // evaporation check
+        if (c.water > 0.05 && c.temp > params.evaporationTemp) { c.water = 0; c.evapAt = now; }
+      }
+      if (p.life <= 0) particles.splice(i,1);
+    }
+
+    // background neutron seeding
+    if (Math.random() < 0.02 * (dt/16) && particles.length < 4000) spawnParticle();
+
+    // heat diffusion
+    const dT = [];
+    for (let y=0;y<rows;y++){
+      dT[y] = new Array(cols).fill(0);
+      for (let x=0;x<cols;x++){
+        let sum=0,n=0;
+        [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]].forEach(([dx,dy])=>{
+          const nx=x+dx, ny=y+dy;
+          if (nx>=0 && nx<cols && ny>=0 && ny<rows){ sum += cells[ny][nx].temp; n++; }
+        });
+        if (n>0){ const avg = sum/n; dT[y][x] = (avg - cells[y][x].temp) * params.heatDiffusion * (dt/50); }
+      }
+    }
+    for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) cells[y][x].temp += dT[y][x];
+
+    // xenon decay, water regen, and passive cooling using waterCoolingRate
+    for (let y=0;y<rows;y++) for (let x=0;x<cols;x++){
+      const c = cells[y][x];
+      c.xenon = Math.max(0, c.xenon - params.xenonDecayRate * dt);
+      if (c.water > 0.05) c.temp = Math.max(0, c.temp - params.waterCoolingRate * dt);
+      if (c.water < 0.05 && now - c.evapAt > params.regenTime) { c.water = 1.0; c.temp = Math.max(0, c.temp*0.45 - 0.04); c.evapAt = 0; }
+    }
+
+    // After physics step, check neutron count thresholds to show warnings / trigger explosion
+    const neutronCount = particles.length;
+    handleWarnings(neutronCount);
+    if (neutronCount > 15000 && !exploded) {
+      triggerExplosion();
+    }
+  }
+
+  // warning UI logic
+  function handleWarnings(count) {
+    if (exploded) { hideOverlays(); return; }
+    if (count > 450) {
+      showOverlay(critOverlay); hideOverlayAfter(warnOverlay, 0);
+    } else if (count > 250) {
+      showOverlay(warnOverlay); hideOverlayAfter(critOverlay, 0);
+    } else {
+      hideOverlays();
+    }
+  }
+  function showOverlay(el) { el.style.opacity = '1'; el.style.pointerEvents='none'; }
+  function hideOverlayAfter(el, ms) { if (!el) return; setTimeout(()=>el.style.opacity='0', ms); }
+  function hideOverlays(){ warnOverlay.style.opacity='0'; critOverlay.style.opacity='0'; }
+
+  // explosion sequence
+  exploded = false;
+  function triggerExplosion(){
+    exploded = true;
+    running = false;
+    const shell = document.createElement('div'); shell.className = 'explosionFull';
+    shell.style.background = 'rgba(255,0,0,0)'; shell.style.transition = 'background 900ms linear';
+    shell.style.display = 'flex'; shell.style.flexDirection='column'; shell.style.alignItems='center'; shell.style.justifyContent='center';
+    document.body.appendChild(shell);
+
+    requestAnimationFrame(() => {
+      shell.style.background = 'rgba(255,0,0,0.95)';
+      shell.textContent = '';
+      setTimeout(()=> {
+        shell.style.transition = 'background 600ms linear, color 400ms';
+        shell.style.background = 'rgba(0,0,0,1)';
+        setTimeout(()=>{
+          shell.innerHTML = '<div style="text-align:center;"><div style="font-size:40px;font-weight:900">The end — Reactor exploded.</div></div>';
+        }, 600);
+      }, 900);
+    });
+  }
+
+  // draw
+  function draw() {
+    if (exploded) return;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#f6fbff'; ctx.fillRect(0,0,W,H);
+    roundRect(ctx, 8,8, W-16, H-16, 10); ctx.fillStyle = '#ffffff'; ctx.fill();
+
+    const coreX = pad, coreY = pad, coreW = cols*cellW, coreH = rows*cellH;
+    ctx.save(); ctx.beginPath(); ctx.rect(coreX-4, coreY-4, coreW+8, coreH+8); ctx.clip();
+
+    // cells
+    for (let y=0;y<rows;y++){
+      for (let x=0;x<cols;x++){
+        const c = cells[y][x];
+        const cx = coreX + x*cellW + cellW/2, cy = coreY + y*cellH + cellH/2;
+        // base disc
+        ctx.beginPath(); ctx.fillStyle = '#dfe9ee'; ctx.arc(cx,cy,pelletR+4,0,Math.PI*2); ctx.fill();
+
+        // evaporated red
+        if (c.water < 0.05) {
+          ctx.beginPath(); ctx.fillStyle = '#ff2b2b'; ctx.arc(cx,cy,pelletR,0,Math.PI*2); ctx.fill();
+        } else {
+          const col = waterColor(c.temp);
+          ctx.beginPath(); ctx.arc(cx,cy,pelletR,0,Math.PI*2); ctx.fillStyle = col; ctx.fill();
+        }
+
+        // uranium: white with black outline
+        if (c.fuel > 0.001) {
+          ctx.beginPath(); ctx.arc(cx,cy,pelletR*0.58,0,Math.PI*2); ctx.fillStyle = '#ffffff'; ctx.fill();
+          ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#000000'; ctx.arc(cx,cy,pelletR*0.58,0,Math.PI*2); ctx.stroke();
+        }
+
+        // xenon ring when present (purple)
+        if (c.xenon > 0.04) {
+          const a = Math.min(0.9, (c.xenon - 0.04) * 3.5);
+          ctx.beginPath(); ctx.lineWidth = 2.5; ctx.strokeStyle = `rgba(110,58,200,${0.35 + a*0.6})`; ctx.arc(cx,cy,pelletR*0.98,0,Math.PI*2); ctx.stroke();
+          if (c.xenon > 0.18) { ctx.beginPath(); ctx.fillStyle = 'rgba(110,58,200,0.06)'; ctx.arc(cx,cy,pelletR*1.25,0,Math.PI*2); ctx.fill(); }
+        }
+
+        // heat glow
+        if (c.temp > 0.6 && c.water > 0.05) {
+          ctx.beginPath(); ctx.fillStyle = `rgba(255,198,77,${Math.min(0.28,(c.temp-0.6)*0.9)})`; ctx.arc(cx,cy,pelletR*1.25,0,Math.PI*2); ctx.fill();
+        }
+      }
+    }
+
+    // rods (in front)
+    rods.forEach((r, idx) => {
+      const col = r.col;
+      const rx = coreX + col*cellW + cellW/2 - cellW*0.32;
+      const rw = cellW*0.64;
+      const top = coreY - 10, bottom = coreY + coreH + 10;
+      // shaft
+      ctx.fillStyle = '#22252a'; roundRect(ctx, rx, top, rw, bottom-top, 6); ctx.fill();
+      // insertion overlay
+      const insH = coreH * r.insert;
+      if (insH > 0.0001) {
+        ctx.fillStyle = 'rgba(6,6,6,0.95)'; ctx.fillRect(rx, coreY, rw, insH);
+        ctx.fillStyle = '#ff8a2b'; ctx.fillRect(rx, coreY + insH - 3, rw, 4); // orange depth line
+      }
+      // top cap
+      ctx.fillStyle = '#4b4f52'; roundRect(ctx, rx-2, coreY-22, rw+4, 14, 4); ctx.fill();
+      // index text
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font='11px system-ui'; ctx.fillText(idx+1, rx + rw*0.5 - 3, coreY - 8);
+    });
+
+    // particles black with halo
+    for (const p of particles) {
+      const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*5);
+      g.addColorStop(0,'rgba(0,0,0,0.18)'); g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*4,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.fillStyle = '#000'; ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    }
+
+    ctx.restore();
+
+    // stats update
+    let pc = particles.length, waterCount=0, totalX=0, totalHeat=0;
+    for (let y=0;y<rows;y++) for (let x=0;x<cols;x++){
+      const c = cells[y][x];
+      if (c.water > 0.05) waterCount++;
+      totalX += c.xenon;
+      totalHeat += c.temp * (c.water>0.05 ? 1 : 0.2);
+    }
+    const avgX = totalX / (rows*cols);
+    const power = Math.max(0, Math.round(params.powerPerHeat * (totalHeat/(rows*cols))));
+    statNeut.textContent = pc;
+    statWater.textContent = waterCount + ' / ' + (rows*cols);
+    statXen.textContent = avgX.toFixed(3);
+    statPower.textContent = `${power} MW`;
+
+    // on-screen small summary
+    ctx.fillStyle = '#071427'; ctx.font='12px system-ui';
+    ctx.fillText(`Neutrons: ${pc} • Water: ${waterCount} • Xenon(avg): ${avgX.toFixed(3)} • Power: ${power} MW`, 18, H-8);
+  }
+
+  // main loop
+  let rafId = null;
+  function loop(now) {
+    if (!exploded && running) step(now);
+    if (!exploded) draw();
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
+
+  // particle spawn helper
+  function spawnParticle(x,y,dx,dy){ const p = { x: x ?? (pad + Math.random()*cols*cellW), y: y ?? (pad + Math.random()*rows*cellH), vx: dx ?? (Math.random()*2-1), vy: dy ?? (Math.random()*2-1), r: 3 + Math.random()*3, life: 8000 + Math.random()*12000 }; const m = Math.hypot(p.vx,p.vy)||1; p.vx/=m; p.vy/=m; particles.push(p); }
+
+  // utilities
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  // ensure warnings are updated even if user not running physics (UI safety)
+  setInterval(()=>{ handleWarnings(particles.length); }, 400);
+
+})();
+</script>
+</body>
+</html>
